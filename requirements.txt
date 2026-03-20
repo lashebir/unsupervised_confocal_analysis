@@ -1,0 +1,16 @@
+﻿--extra-index-url https://download.pytorch.org/whl/cu121
+numpy<2.3
+scipy
+scikit-learn
+numba
+numcodecs<0.14
+zarr>=2.6,<2.16
+pacmap
+aicsimageio
+pandas
+torch
+torchvision
+torchaudio
+jupyter
+ipykernel
+readlif>=0.6.4
