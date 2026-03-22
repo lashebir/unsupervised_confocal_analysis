@@ -6,11 +6,12 @@ numba
 numcodecs<0.14
 zarr>=2.6,<2.16
 pacmap
-aicsimageio
-pandas
+aicsimageio[lif]
+pandas<3
 torch
 torchvision
 torchaudio
 jupyter
 ipykernel
-readlif>=0.6.4
+readlif==0.6.5
+bioformats_jar
