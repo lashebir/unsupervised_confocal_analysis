@@ -1,19 +1,22 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+# # 00. Terminal Commands
+
+# # Terminal Commands
+# 
+# `$token = Get-Content ".keys\gh_pt"`
+# 
+# 
+# `git remote set-url origin "https://$token@github.com/lashebir/unsupervised_confocal_analysis.git"`
+# 
+# `jupyter nbconvert --to script shallow_cnn_learning.ipynb`
+# 
+# 
+# 
+# `Start-Process -NoNewWindow -FilePath "python" -ArgumentList "-u shallow_cnn_learning_updated.py" -RedirectStandardOutput "..\finetuning\train_log.txt" -RedirectStandardError "..\finetuning\train_error.txt"`
+
 # # 0. Imports & Functions
-
-# In[ ]:
-
-
-# Terminal Commands
-
-# $token = Get-Content ".keys\gh_pt"
-# git remote set-url origin "https://$token@github.com/lashebir/unsupervised_confocal_analysis.git"
-
-# jupyter nbconvert --to script shallow_cnn_learning.ipynb
-# Start-Process -NoNewWindow -FilePath "pythonw" -ArgumentList "shallow_cnn_learning.py" -RedirectStandardOutput "train_log.txt" --RedirectStandardError "train_error.txt"
-
 
 # ## Imports
 
@@ -54,7 +57,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import GroupKFold
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, HDBSCAN
 # from collections import defaultdict
 # import skfda
 
@@ -724,11 +727,17 @@ def cluster_embeddings(embeddings, method='kmeans', n_clusters=5, **kwargs):
         model = KMeans(n_clusters=n_clusters, random_state=42, **kwargs)
         labels = model.fit_predict(embeddings)
 
-    elif method == 'dbscan':
-        from sklearn.cluster import DBSCAN
-        eps = kwargs.get('eps', 0.5)
+    # elif method == 'dbscan':
+    #     from sklearn.cluster import DBSCAN
+    #     eps = kwargs.get('eps', 0.5)
+    #     min_samples = kwargs.get('min_samples', 5)
+    #     model = DBSCAN(eps=eps, min_samples=min_samples)
+    #     labels = model.fit_predict(embeddings)
+
+    elif method == 'hdbscan':
+        min_cluster_size = kwargs.get('min_cluster_size', 10)
         min_samples = kwargs.get('min_samples', 5)
-        model = DBSCAN(eps=eps, min_samples=min_samples)
+        model = HDBSCAN(min_cluster_size=min_cluster_size, min_samples=min_samples)
         labels = model.fit_predict(embeddings)
 
     elif method == 'hierarchical':
@@ -748,7 +757,7 @@ def cluster_embeddings(embeddings, method='kmeans', n_clusters=5, **kwargs):
     else:
         print(f"Warning: Only {n_unique} unique cluster(s) found")
 
-    return labels, model
+    return labels
 
 
 def find_optimal_clusters(embeddings, max_k=10, method='kmeans'):
@@ -918,65 +927,6 @@ def visualize_embeddings_2d(embeddings, labels=None, method='pacmap', title='Emb
     return embedding_2d
 
 
-def visualize_reconstructions(model, dataloader, n_samples=5, model_type='vae', device='cuda'):
-    """
-    Visualize original vs reconstructed images.
-
-    Args:
-        model: Trained autoencoder or VAE
-        dataloader: DataLoader with images
-        n_samples: Number of samples to visualize
-        model_type: 'autoencoder' or 'vae'
-        device: 'cpu' or 'cuda'
-    """
-    model = model.to(device)
-    model.eval()
-
-    # Get batch of images
-    for batch in dataloader:
-        if isinstance(batch, (list, tuple)):
-            images = batch[0]
-        else:
-            images = batch
-        images = images.to(device)
-        break
-
-    # Reconstruct
-    with torch.no_grad():
-        if model_type == 'vae':
-            reconstructions, mu, logvar = model(images)
-        else:
-            reconstructions, _ = model(images)
-
-    # Move to CPU for visualization
-    images = images.cpu().numpy()
-    reconstructions = reconstructions.cpu().numpy()
-
-    # Plot
-    n_samples = min(n_samples, images.shape[0])
-    fig, axes = plt.subplots(n_samples, 8, figsize=(20, 2.5*n_samples))
-
-    channel_names = ['Myo7', 'GluR2', 'CtBP2', 'NF']
-
-    for i in range(n_samples):
-        for ch in range(4):
-            # Original
-            axes[i, ch].imshow(images[i, ch], cmap='gray')
-            axes[i, ch].axis('off')
-            if i == 0:
-                axes[i, ch].set_title(f'Original\n{channel_names[ch]}')
-
-            # Reconstructed
-            axes[i, ch+4].imshow(reconstructions[i, ch], cmap='gray')
-            axes[i, ch+4].axis('off')
-            if i == 0:
-                axes[i, ch+4].set_title(f'Reconstructed\n{channel_names[ch]}')
-
-    plt.tight_layout()
-    plt.suptitle('Original vs Reconstructed Images', y=1.01, fontsize=14)
-    plt.show()
-
-
 def plot_training_curves(losses, model_name='Model'):
     """
     Plot training loss curves.
@@ -1052,39 +1002,6 @@ def plot_cluster_quality(results):
     best_score = results['silhouette_scores'][best_k_idx]
 
     print(f"\nRecommended k: {best_k} (silhouette score: {best_score:.3f})")
-
-
-def visualize_latent_space_sampling(vae_model, n_samples=10, latent_dim=256, device='cuda'):
-    """
-    Sample random points from VAE latent space and decode.
-
-    Useful for understanding what the VAE learned.
-    """
-    vae_model = vae_model.to(device)
-    vae_model.eval()
-
-    # Sample from standard normal
-    z = torch.randn(n_samples, latent_dim).to(device)
-
-    with torch.no_grad():
-        generated = vae_model.decode(z)
-
-    generated = generated.cpu().numpy()
-
-    # Visualize
-    fig, axes = plt.subplots(n_samples, 4, figsize=(12, 3*n_samples))
-    channel_names = ['Myo7', 'GluR2', 'CtBP2', 'NF']
-
-    for i in range(n_samples):
-        for ch in range(4):
-            axes[i, ch].imshow(generated[i, ch], cmap='gray')
-            axes[i, ch].axis('off')
-            if i == 0:
-                axes[i, ch].set_title(f'{channel_names[ch]}')
-
-    plt.tight_layout()
-    plt.suptitle('Random Samples from VAE Latent Space', y=1.01, fontsize=14)
-    plt.show()
 
 def visualize_clusters_by_metadata(embeddings, metadata_df, color_by='cluster',
                                 method='pacmap', title=None, figsize=(15, 10),
@@ -1658,17 +1575,17 @@ def analyze_cluster_composition_v2(metadata_df, cluster_col='cluster',
 # In[ ]:
 
 
-filter1 = 128
-filter2 = 32
-dropout1 = 0.5
-dropout2 = 0.3
-dropout_fc = 0.1
+# filter1 = 128
+# filter2 = 32
+# dropout1 = 0.5
+# dropout2 = 0.3
+# dropout_fc = 0.1
 
-# Model initialization
-peak_finding_model = CNN(filter1, filter2, dropout1, dropout2, dropout_fc)
-model_loader = torch.load('./models/waveI_cnn.pth')
-peak_finding_model.load_state_dict(model_loader)
-peak_finding_model.eval()
+# # Model initialization
+# peak_finding_model = CNN(filter1, filter2, dropout1, dropout2, dropout_fc)
+# model_loader = torch.load('./models/waveI_cnn.pth')
+# peak_finding_model.load_state_dict(model_loader)
+# peak_finding_model.eval()
 
 
 # In[ ]:
@@ -2150,27 +2067,15 @@ class ShallowCNN_Tuning:
         self.target_size = target_size  
         self.optimizer = optimizer
 
-    def build(self, device='cuda'):
+    def build(self, dataset, device='cuda'):
         """
-        Build and return model + dataset + dataloader.
+        Build and return dataloader.
+
+        Model and dataset built separately now.
 
         Returns:
-            model: ShallowCNN instance
-            dataset: SynapseImageDataset for training
             eval_dataloader: DataLoader for embedding extraction
         """
-        # Build model
-        model = ShallowCNN(
-            input_channels=self.input_channels,
-            embedding_dim=self.embedding_dim
-        )
-
-        # Build paired dataset for training (has .get_pair() method)
-        dataset = SynapseImageDataset(
-            image_paths=self.image_paths,
-            target_size=self.target_size
-
-        )
 
         # Create dataloader for embedding extraction
         eval_dataloader = DataLoader(
@@ -2181,7 +2086,7 @@ class ShallowCNN_Tuning:
             pin_memory=True if torch.cuda.is_available() else False
         )
 
-        return model, dataset, eval_dataloader
+        return eval_dataloader
 
     def train(self, model, dataset, epochs, device='cuda'):
         """
@@ -2599,13 +2504,123 @@ class ShallowCNN(nn.Module):
 # In[ ]:
 
 
+# if __name__ == '__main__':
+#     image_paths = collect_all_npy_paths(image_dir_npy)
+#     device = 'cuda' if torch.cuda.is_available() else 'mps'
+#     print(f"Using device: {device}")  # This should be printing cuda!!!!
+#     # global_num_workers = 16
+
+#     todays_ft = f'3_21' # update this per ft round
+#     Path(rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\models').mkdir(parents=True, exist_ok=False)
+#     Path(rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\embeddings').mkdir(parents=True, exist_ok=False)
+
+#     np.random.seed(42)
+#     torch.manual_seed(42)
+
+#     learning_rates = [0.0001, 0.0005, 0.001]
+#     temperatures = [0.1, 0.15, 0.2]
+#     embedding_dims = [256, 512]
+#     # batches = [4, 8, 16]
+#     batch = 128  # still may need tuning...
+
+#     all_results = {}
+#     model_index = 0
+
+#     paired_dataset = SynapseImageDataset(
+#         image_paths=image_paths,
+#         target_size=224)
+
+#     print(f"Images with pairs: {len(paired_dataset.pairs)}")
+#     for learning_rate in learning_rates:
+#         for temperature in temperatures:
+#             for emb_dim in embedding_dims:
+#                 model_index += 1
+#                 print("\n" + "="*60)
+#                 print(f"Model {model_index}: Learning rate: {learning_rate}, Temperature: {temperature}")
+#                 print("="*60)
+
+#                 builder = ShallowCNN_Tuning(
+#                     image_paths=image_paths,
+#                     embedding_dim=emb_dim,
+#                     learning_rate=learning_rate,
+#                     temperature=temperature,
+#                     batch_size=batch,
+#                     num_workers=global_num_workers
+#                 )
+
+#                 eval_dataloader = builder.build()
+
+#                 model = ShallowCNN(
+#                     input_channels=4,
+#                     embedding_dim=emb_dim
+#                 )
+
+#                 # Saving model
+#                 cl_losses, trained_model = builder.train(model, paired_dataset, epochs=1000, device=device)
+#                 torch.save(trained_model, rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\models\model_{model_index}.pth')
+
+#                 # Saving embeddings
+#                 embeddings = extract_embeddings(trained_model, eval_dataloader, device=device)
+#                 np.save(rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\embeddings\embeddings_{model_index}.npy', embeddings)
+
+#                 # Assessing clusters via kmeans
+#                 results = find_optimal_clusters(embeddings, max_k=10, method='kmeans')
+#                 plot_cluster_quality(results)
+#                 best_k_idx = np.argmax(results['silhouette_scores'])
+#                 k_optimal = results['k_values'][best_k_idx]
+#                 k_sil_score = results['silhouette_scores'][best_k_idx]
+#                 k_cluster_labels = cluster_embeddings(embeddings, method='kmeans', n_clusters=k_optimal)
+#                 k_db_score = davies_bouldin_score(embeddings, k_cluster_labels)
+
+#                 # Assessing clusters via HDBSCAN
+#                 hdb_labels = cluster_embeddings(embeddings, method='hdbscan', min_cluster_size=10)
+#                 n_clusters_hdb = len(set(hdb_labels)) - (1 if -1 in hdb_labels else 0)
+#                 n_noise = (hdb_labels == -1).sum()
+#                 print(f"HDBSCAN found {n_clusters_hdb} clusters, {n_noise} noise points")
+
+#                 # Only score if HDBSCAN found >1 cluster
+#                 if n_clusters_hdb > 1:
+#                     # Exclude noise points for scoring
+#                     valid = hdb_labels != -1
+#                     hdb_sil = silhouette_score(embeddings[valid], hdb_labels[valid])
+#                     hdb_db = davies_bouldin_score(embeddings[valid], hdb_labels[valid])
+#                     print(f"HDBSCAN - Silhouette: {hdb_sil:.4f}, DB: {hdb_db:.4f}")
+#                 else:
+#                     hdb_sil = -1
+#                     hdb_db = float('inf')
+
+#                 # Saving all model metadata and clustering results
+#                 all_results[f'Model {model_index}'] = {
+#                     'learning_rate': learning_rate,
+#                     'temperature': temperature,
+#                     'emb_dimensions': emb_dim,
+#                     'batch_size': batch,
+#                     'final_loss': cl_losses[-1],
+#                     'best_k': k_optimal,
+#                     'k_silhouette_score': k_sil_score,
+#                     'k_db_score': k_db_score,
+#                     'hdb_silhouette_score': hdb_sil,
+#                     'hdb_db_score': hdb_db,
+#                     'losses': cl_losses,
+
+#                 }
+#                 plot_training_curves(cl_losses, model_name=f'Shallow CNN - Model {model_index}')
+#                 print(f"Model data saved successfully. Model parameters: {sum(p.numel() for p in trained_model.parameters()):,}. Silhouette Score for best k={k_optimal}: {sil_score:.4f}. Davies-Bouldin Score: {db_score:.4f}.")
+
+#     with open(rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\final_results.pkl', 'wb') as f:
+#         pickle.dump(all_results, f)
+#         print(f'All results saved successfully.')
+
+
+# In[ ]:
+
+
 if __name__ == '__main__':
     image_paths = collect_all_npy_paths(image_dir_npy)
     device = 'cuda' if torch.cuda.is_available() else 'mps'
     print(f"Using device: {device}")  # This should be printing cuda!!!!
-    # global_num_workers = 16
 
-    todays_ft = f'3_21' # update this per ft round
+    todays_ft = f'3_22' # update this per ft round
     Path(rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\models').mkdir(parents=True, exist_ok=False)
     Path(rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\embeddings').mkdir(parents=True, exist_ok=False)
 
@@ -2618,17 +2633,14 @@ if __name__ == '__main__':
     # batches = [4, 8, 16]
     batch = 128  # still may need tuning...
 
-    all_results = {}
-    best_db = 0
-    best_config = None
+    model_results = {}
     model_index = 0
 
-    dataset = SynapseImageDataset(
+    paired_dataset = SynapseImageDataset(
         image_paths=image_paths,
         target_size=224)
 
-    print(f"Images with pairs: {len(dataset.pairs)}")
-
+    print(f"Starting SIMCLR-Shallow CNN training for images with pairs: {len(paired_dataset.pairs)}")
     for learning_rate in learning_rates:
         for temperature in temperatures:
             for emb_dim in embedding_dims:
@@ -2646,45 +2658,89 @@ if __name__ == '__main__':
                     num_workers=global_num_workers
                 )
 
-                # model, paired_dataset, eval_dataloader = builder.build()
+                eval_dataloader = builder.build(dataset=paired_dataset, device=device)
 
                 model = ShallowCNN(
                     input_channels=4,
                     embedding_dim=emb_dim
                 )
 
-                losses, trained_model = builder.train(model, dataset, epochs=1000, device=device)
-                embeddings = extract_embeddings(trained_model, dataset, device=device)
+                # Saving model
+                cl_losses, trained_model = builder.train(model, paired_dataset, epochs=1000, device=device)
                 torch.save(trained_model, rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\models\model_{model_index}.pth')
+
+                # Saving embeddings
+                embeddings = extract_embeddings(trained_model, eval_dataloader, device=device)
                 np.save(rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\embeddings\embeddings_{model_index}.npy', embeddings)
 
-                results = find_optimal_clusters(embeddings, max_k=10, method='kmeans')
-                plot_cluster_quality(results)
-                best_k_idx = np.argmax(results['silhouette_scores'])
-                k_optimal = results['k_values'][best_k_idx]
-                sil_score = results['silhouette_scores'][best_k_idx]
-                cluster_labels, cluster_model = cluster_embeddings(embeddings, method='kmeans', n_clusters=k_optimal)
-                db_score = davies_bouldin_score(embeddings, cluster_labels)
-                if db_score > best_db:
-                    best_db = db_score
-                    best_config = (model_index, learning_rate, temperature)
-
-                all_results[f'Model {model_index}'] = {
+                # Saving all model metadata and clustering results
+                model_results[f'Model {model_index}'] = {
                     'learning_rate': learning_rate,
                     'temperature': temperature,
-                    'final_loss': losses[-1],
-                    'best_k': k_optimal,
-                    'silhouette_score': sil_score,
-                    'db_score': db_score,
-                    'losses': losses,
-                    'model': trained_model,
                     'emb_dimensions': emb_dim,
-                    'batch_size': batch
+                    'batch_size': batch,
+                    'final_loss': cl_losses[-1],
+                    'losses': cl_losses   
                 }
-                plot_training_curves(losses, model_name=f'Shallow CNN - Model {model_index}')
-                print(f"Model data saved successfully. Model parameters: {sum(p.numel() for p in trained_model.parameters()):,}. Silhouette Score for best k={k_optimal}: {sil_score:.4f}. Davies-Bouldin Score: {db_score:.4f}.")
+                print(f"Model data saved successfully. Model parameters: {sum(p.numel() for p in trained_model.parameters()):,}")
 
-    with open(rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\final_results.pkl', 'wb') as f:
-        pickle.dump(all_results, f)
-    print(f'Best Shallow CNN Config Based on Davies-Bouldin Score: Model {best_config[0]} - LR={best_config[1]}, Temp={best_config[2]}')
+    with open(rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\model_training_results.pkl', 'wb') as f:
+        pickle.dump(model_results, f)
+        print(f'All model results saved successfully.')
+
+    clustering_results = {}
+
+    print("="*60, "Starting Clustering Analysis...", "="*60)
+    for model in model_results.keys():
+
+        # Grabbing saved embeddings for analysis
+        model_idx = int(model.split()[1])
+        embeddings = np.load(rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\embeddings\embeddings_{model_idx}.npy')
+
+        # Assessing clusters via kmeans
+        results = find_optimal_clusters(embeddings, max_k=10, method='kmeans')
+        best_k_idx = np.argmax(results['silhouette_scores'])
+        k_optimal = results['k_values'][best_k_idx]
+        k_sil_score = results['silhouette_scores'][best_k_idx]
+        k_cluster_labels = cluster_embeddings(embeddings, method='kmeans', n_clusters=k_optimal)
+        k_db_score = davies_bouldin_score(embeddings, k_cluster_labels)
+
+        # Assessing clusters via HDBSCAN
+        hdb_labels = cluster_embeddings(embeddings, method='hdbscan', min_cluster_size=10)
+        n_clusters_hdb = len(set(hdb_labels)) - (1 if -1 in hdb_labels else 0)
+        n_noise = (hdb_labels == -1).sum()
+        print(f"HDBSCAN found {n_clusters_hdb} clusters, {n_noise} noise points")
+
+        # Only score if HDBSCAN found >1 cluster
+        if n_clusters_hdb > 1:
+            # Exclude noise points for scoring
+            valid = hdb_labels != -1
+            hdb_sil = silhouette_score(embeddings[valid], hdb_labels[valid])
+            hdb_db = davies_bouldin_score(embeddings[valid], hdb_labels[valid])
+            print(f"HDBSCAN - Silhouette: {hdb_sil:.4f}, DB: {hdb_db:.4f}")
+        else:
+            hdb_sil = -1
+            hdb_db = float('inf')
+
+        # Saving clustering results
+        clustering_results[model] = {
+            'kmeans_k': k_optimal,
+            'kmeans_silhouette': k_sil_score,
+            'kmeans_db': k_db_score,
+            'hdbscan_clusters': n_clusters_hdb,
+            'hdbscan_noise': int(n_noise),
+            'hdbscan_silhouette': hdb_sil,
+            'hdbscan_db': hdb_db
+            }
+
+    # Saving clustering results
+    with open(rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\clustering_results.pkl', 'wb') as f:
+        pickle.dump(clustering_results, f)
+        print(f'All clustering results saved successfully.')
+
+    # Merging model training and clustering results
+    model_clustering_results = {k: {**model_results[k], **clustering_results[k]} for k in model_results}
+    with open(rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\model_clustering_results.pkl', 'wb') as f:
+        pickle.dump(model_clustering_results, f)
+        print(f'Merged model and clustering results saved successfully.')
 
