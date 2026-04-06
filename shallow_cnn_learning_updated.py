@@ -1,16 +1,14 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # 00. Terminal Commands
-
 # # Terminal Commands
 # 
-# `$token = Get-Content ".keys\gh_pt"`
+# `$token = Get-Content "D:\Leah\.keys\gh_pt"`
 # 
 # 
 # `git remote set-url origin "https://$token@github.com/lashebir/unsupervised_confocal_analysis.git"`
 # 
-# `jupyter nbconvert --to script shallow_cnn_learning.ipynb`
+# `jupyter nbconvert --to script shallow_cnn_learning_updated.ipynb`
 # 
 # 
 # 
@@ -104,6 +102,7 @@ import torchvision.transforms as transforms
 
 import pacmap
 import pickle
+import gc
 
 
 # ## ABRA
@@ -2621,8 +2620,9 @@ if __name__ == '__main__':
     print(f"Using device: {device}")  # This should be printing cuda!!!!
 
     todays_ft = f'3_22' # update this per ft round
-    Path(rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\models').mkdir(parents=True, exist_ok=False)
-    Path(rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\embeddings').mkdir(parents=True, exist_ok=False)
+    Path(rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\models').mkdir(parents=True, exist_ok=True)  # MAKE SURE YOU CHANGE THIS BACK TO FALSE
+    Path(rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\embeddings').mkdir(parents=True, exist_ok=True)  # MAKE SURE YOU CHANGE THIS BACK TO FALSE
+    Path(rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\losses').mkdir(parents=True, exist_ok=True)  # MAKE SURE YOU CHANGE THIS BACK TO FALSE
 
     np.random.seed(42)
     torch.manual_seed(42)
@@ -2645,6 +2645,28 @@ if __name__ == '__main__':
         for temperature in temperatures:
             for emb_dim in embedding_dims:
                 model_index += 1
+                model_path = rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\models\model_{model_index}.pth'
+
+
+                # Only because model training crashed...
+                if os.path.exists(model_path):
+                    print(f"Model {model_index} already exists, skipping...")
+
+                    losses_path = rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\losses_{model_index}.npy'
+                    if os.path.exists(losses_path):
+                        final_loss = float(np.load(losses_path)[-1])
+                    else:
+                        final_loss = None
+
+                    model_results[f'Model {model_index}'] = {
+                        'learning_rate': learning_rate,
+                        'temperature': temperature,
+                        'emb_dimensions': emb_dim,
+                        'batch_size': batch,
+                        'final_loss': final_loss
+                    }
+                    continue
+
                 print("\n" + "="*60)
                 print(f"Model {model_index}: Learning rate: {learning_rate}, Temperature: {temperature}")
                 print("="*60)
@@ -2673,16 +2695,22 @@ if __name__ == '__main__':
                 embeddings = extract_embeddings(trained_model, eval_dataloader, device=device)
                 np.save(rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\embeddings\embeddings_{model_index}.npy', embeddings)
 
+                # Saving training values to disk to save memory
+                np.save(rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\losses\losses_{model_index}.npy', np.array(cl_losses))
+
                 # Saving all model metadata and clustering results
                 model_results[f'Model {model_index}'] = {
                     'learning_rate': learning_rate,
                     'temperature': temperature,
                     'emb_dimensions': emb_dim,
                     'batch_size': batch,
-                    'final_loss': cl_losses[-1],
-                    'losses': cl_losses   
+                    'final_loss': cl_losses[-1]
                 }
                 print(f"Model data saved successfully. Model parameters: {sum(p.numel() for p in trained_model.parameters()):,}")
+
+                del model, trained_model, embeddings, eval_dataloader, builder, cl_losses
+                torch.cuda.empty_cache()
+                gc.collect()
 
     with open(rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\model_training_results.pkl', 'wb') as f:
         pickle.dump(model_results, f)
@@ -2695,7 +2723,13 @@ if __name__ == '__main__':
 
         # Grabbing saved embeddings for analysis
         model_idx = int(model.split()[1])
-        embeddings = np.load(rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\embeddings\embeddings_{model_idx}.npy')
+        emb_path = rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\embeddings\embeddings_{model_idx}.npy'
+
+        if not os.path.exists(emb_path):
+            print(f"No embeddings for {model}, skipping clustering...")
+            continue
+
+        embeddings = np.load(emb_path)
 
         # Assessing clusters via kmeans
         results = find_optimal_clusters(embeddings, max_k=10, method='kmeans')
@@ -2739,7 +2773,10 @@ if __name__ == '__main__':
         print(f'All clustering results saved successfully.')
 
     # Merging model training and clustering results
-    model_clustering_results = {k: {**model_results[k], **clustering_results[k]} for k in model_results}
+    model_clustering_results = {
+        k: {**model_results[k], **clustering_results.get(k, {})}   # doesn't error if clustering results missing for a model
+        for k in model_results
+    }
     with open(rf'D:\Leah\unsupervised_clustering\finetuning\{todays_ft}\model_clustering_results.pkl', 'wb') as f:
         pickle.dump(model_clustering_results, f)
         print(f'Merged model and clustering results saved successfully.')
